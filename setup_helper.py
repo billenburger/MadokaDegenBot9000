@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+"""
+Universal Trading Bot Setup Helper
+Helps users configure and test their bot setup
+"""
+
+import os
+import sys
+import asyncio
+import json
+from typing import Dict, Optional
+
+def create_config_file():
+    """Interactive config file creation"""
+    print("🚀 Universal Trading Bot - Configuration Setup")
+    print("=" * 50)
+    
+    # Exchange configuration
+    print("\n📊 EXCHANGE CONFIGURATION")
+    print("-" * 30)
+    
+    print("\nPopular exchanges:")
+    print("1. binance (Binance)")
+    print("2. okx (OKX)")
+    print("3. bybit (Bybit)")
+    print("4. mexc (MEXC)")
+    print("5. kraken (Kraken)")
+    print("6. bitget (Bitget)")
+    print("7. kucoin (KuCoin)")
+    print("8. Other (enter manually)")
+    
+    while True:
+        choice = input("\nChoose exchange (1-8): ").strip()
+        if choice == "1":
+            exchange_id = "binance"
+            exchange_name = "Binance"
+            break
+        elif choice == "2":
+            exchange_id = "okx"
+            exchange_name = "OKX"
+            break
+        elif choice == "3":
+            exchange_id = "bybit"
+            exchange_name = "Bybit"
+            break
+        elif choice == "4":
+            exchange_id = "mexc"
+            exchange_name = "MEXC"
+            break
+        elif choice == "5":
+            exchange_id = "kraken"
+            exchange_name = "Kraken"
+            break
+        elif choice == "6":
+            exchange_id = "bitget"
+            exchange_name = "Bitget"
+            break
+        elif choice == "7":
+            exchange_id = "kucoin"
+            exchange_name = "KuCoin"
+            break
+        elif choice == "8":
+            exchange_id = input("Enter CCXT exchange ID: ").strip().lower()
+            exchange_name = input("Enter exchange display name: ").strip()
+            break
+        else:
+            print("❌ Invalid choice. Please enter 1-8.")
+    
+    api_key = input(f"\nEnter your {exchange_name} API key: ").strip()
+    secret_key = input(f"Enter your {exchange_name} secret key: ").strip()
+    
+    passphrase = ""
+    if exchange_id in ["okx", "kucoin"]:
+        passphrase = input(f"Enter your {exchange_name} passphrase: ").strip()
+    
+    sandbox = input("Use sandbox/testnet? (y/n): ").strip().lower() == 'y'
+    
+    # Discord configuration
+    print("\n💬 DISCORD CONFIGURATION")
+    print("-" * 30)
+    
+    discord_enabled = input("Enable Discord notifications? (y/n): ").strip().lower() == 'y'
+    discord_config = {"enabled": discord_enabled}
+    
+    if discord_enabled:
+        bot_token = input("Enter Discord bot token: ").strip()
+        
+        servers = []
+        while True:
+            server_name = input("\nEnter server name (or press Enter to finish): ").strip()
+            if not server_name:
+                break
+            
+            channel_id = input("Enter Discord channel ID: ").strip()
+            role_id = input("Enter Discord role ID: ").strip()
+            
+            servers.append({
+                "name": server_name,
+                "channel_id": channel_id,
+                "role_id": role_id
+            })
+        
+        discord_config.update({
+            "bot_token": bot_token,
+            "servers": servers
+        })
+    
+    # Telegram configuration
+    print("\n📱 TELEGRAM CONFIGURATION")
+    print("-" * 30)
+    
+    telegram_enabled = input("Enable Telegram notifications? (y/n): ").strip().lower() == 'y'
+    telegram_config = {"enabled": telegram_enabled}
+    
+    if telegram_enabled:
+        bot_token = input("Enter Telegram bot token: ").strip()
+        
+        chats = []
+        while True:
+            chat_name = input("\nEnter chat name (or press Enter to finish): ").strip()
+            if not chat_name:
+                break
+            
+            chat_id = input("Enter Telegram chat ID: ").strip()
+            
+            chats.append({
+                "name": chat_name,
+                "chat_id": chat_id
+            })
+        
+        telegram_config.update({
+            "bot_token": bot_token,
+            "chats": chats
+        })
+    
+    # Bot settings
+    print("\n⚙️ BOT SETTINGS")
+    print("-" * 30)
+    
+    interval = input("Monitoring interval in seconds (default 10): ").strip()
+    interval = int(interval) if interval.isdigit() else 10
+    
+    # Create config
+    config = {
+        "exchange": {
+            "id": exchange_id,
+            "name": exchange_name,
+            "api_key": api_key,
+            "secret_key": secret_key,
+            "sandbox": sandbox,
+        },
+        "discord": discord_config,
+        "telegram": telegram_config,
+        "monitoring_interval": interval,
+    }
+    
+    if passphrase:
+        config["exchange"]["passphrase"] = passphrase
+    
+    # Write config file
+    config_content = f'''"""
+Configuration for Universal Trading Bot
+Generated by setup helper
+
+DO NOT commit this file to version control!
+"""
+
+CONFIG = {json.dumps(config, indent=4)}
+'''
+    
+    with open("config.py", "w") as f:
+        f.write(config_content)
+    
+    print(f"\n✅ Configuration saved to config.py")
+    return config
+
+async def test_configuration():
+    """Test the configuration"""
+    try:
+        from config import CONFIG
+    except ImportError:
+        print("❌ config.py not found. Run setup first.")
+        return False
+    
+    print("\n🧪 TESTING CONFIGURATION")
+    print("=" * 30)
+    
+    # Test exchange
+    print(f"\n📊 Testing {CONFIG['exchange']['name']} connection...")
+    
+    try:
+        import ccxt.async_support as ccxt
+        
+        exchange_id = CONFIG['exchange']['id']
+        if not hasattr(ccxt, exchange_id):
+            print(f"❌ Exchange '{exchange_id}' not supported by CCXT")
+            return False
+        
+        exchange_class = getattr(ccxt, exchange_id)
+        exchange = exchange_class({
+            'apiKey': CONFIG['exchange']['api_key'],
+            'secret': CONFIG['exchange']['secret_key'],
+            'password': CONFIG['exchange'].get('passphrase', ''),
+            'sandbox': CONFIG['exchange'].get('sandbox', False),
+            'enableRateLimit': True,
+        })
+        
+        # Test authentication
+        balance = await exchange.fetch_balance()
+        print("✅ Exchange authentication successful")
+        
+        # Test positions endpoint
+        try:
+            positions = await exchange.fetch_positions()
+            print(f"✅ Positions endpoint working ({len(positions)} positions)")
+        except Exception as e:
+            print(f"⚠️  Positions endpoint issue: {e}")
+        
+        await exchange.close()
+        
+    except Exception as e:
+        print(f"❌ Exchange test failed: {e}")
+        return False
+    
+    # Test Discord
+    if CONFIG.get('discord', {}).get('enabled'):
+        print(f"\n💬 Testing Discord configuration...")
+        try:
+            import discord
+            
+            # Basic token validation
+            token = CONFIG['discord']['bot_token']
+            if not token or len(token) < 50:
+                print("❌ Invalid Discord bot token")
+                return False
+            
+            print("✅ Discord token format looks valid")
+            
+            servers = CONFIG['discord'].get('servers', [])
+            if not servers:
+                print("⚠️  No Discord servers configured")
+            else:
+                print(f"✅ {len(servers)} Discord server(s) configured")
+            
+        except ImportError:
+            print("❌ discord.py not installed")
+            return False
+        except Exception as e:
+            print(f"❌ Discord test failed: {e}")
+    
+    # Test Telegram
+    if CONFIG.get('telegram', {}).get('enabled'):
+        print(f"\n📱 Testing Telegram configuration...")
+        try:
+            from telegram import Bot
+            
+            token = CONFIG['telegram']['bot_token']
+            if not token or not token.startswith(('1', '2', '3', '4', '5', '6', '7', '8', '9')):
+                print("❌ Invalid Telegram bot token")
+                return False
+            
+            # Test bot token
+            bot = Bot(token=token)
+            bot_info = await bot.get_me()
+            print(f"✅ Telegram bot connected: @{bot_info.username}")
+            
+            chats = CONFIG['telegram'].get('chats', [])
+            if not chats:
+                print("⚠️  No Telegram chats configured")
+            else:
+                print(f"✅ {len(chats)} Telegram chat(s) configured")
+            
+        except ImportError:
+            print("❌ python-telegram-bot not installed")
+            return False
+        except Exception as e:
+            print(f"❌ Telegram test failed: {e}")
+    
+    print(f"\n✅ Configuration test completed successfully!")
+    return True
+
+def main():
+    """Main function"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Universal Trading Bot Setup Helper')
+    parser.add_argument('--setup', action='store_true', help='Interactive configuration setup')
+    parser.add_argument('--test', action='store_true', help='Test current configuration')
+    parser.add_argument('--install', action='store_true', help='Install required packages')
+    
+    args = parser.parse_args()
+    
+    if args.install:
+        print("📦 Installing required packages...")
+        os.system("pip install -r requirements.txt")
+        print("✅ Installation complete!")
+        
+    elif args.setup:
+        if os.path.exists("config.py"):
+            overwrite = input("config.py already exists. Overwrite? (y/n): ").strip().lower()
+            if overwrite != 'y':
+                print("Setup cancelled.")
+                return
+        
+        create_config_file()
+        
+        test_now = input("\nTest configuration now? (y/n): ").strip().lower()
+        if test_now == 'y':
+            asyncio.run(test_configuration())
+            
+    elif args.test:
+        asyncio.run(test_configuration())
+        
+    else:
+        print("Universal Trading Bot - Setup Helper")
+        print()
+        print("Usage:")
+        print("  python setup_helper.py --install    # Install required packages")
+        print("  python setup_helper.py --setup      # Interactive configuration")
+        print("  python setup_helper.py --test       # Test configuration")
+        print()
+        print("Quick start:")
+        print("1. python setup_helper.py --install")
+        print("2. python setup_helper.py --setup")
+        print("3. python trading_bot.py")
+
+if __name__ == "__main__":
+    main()
